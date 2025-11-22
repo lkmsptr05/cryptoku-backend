@@ -1,4 +1,3 @@
-// app.js
 import express from "express";
 import cors from "cors";
 
@@ -15,30 +14,26 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
+
+// debug log (optional tapi membantu banget)
 app.use((req, res, next) => {
   console.log("[REQ]", req.method, req.path);
   next();
 });
 
-
-// ============ ROUTES ASLI ============
-app.use("/", priceRoutes);
+// ROUTES utama
 app.use("/api/health", healthRoutes);
 app.use("/api/orders", orderRoutes);
+app.use("/api/prices", priceRoutes);
 app.use("/api/networks", networkRoutes);
 app.use("/api/midtrans", midtransRoutes);
 app.use("/api/quote", quoteRoutes);
 app.use("/api/estimate-gas", estimateGas);
 app.use("/api/tokens", tokens);
 
-// ROOT
+// Root test
 app.get("/", (req, res) => {
   res.status(200).json({ msg: "API SIAP!!!" });
 });
-
-// (optional) 404 terakhir – kalau mau, TARUH PALING BAWAH
-// app.use((req, res) => {
-//   res.status(404).json({ msg: "Not found", path: req.path });
-// });
 
 export default app;
