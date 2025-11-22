@@ -1,3 +1,4 @@
+// app.js
 import express from "express";
 import cors from "cors";
 
@@ -15,7 +16,12 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ROUTES (tetap sama)
+// ============ TEST ROUTE LANGSUNG DI APP ============
+app.get("/api/test", (req, res) => {
+  res.status(200).json({ ok: true, path: "/api/test", from: "app.js" });
+});
+
+// ============ ROUTES ASLI ============
 app.use("/api/health", healthRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/prices", priceRoutes);
@@ -25,15 +31,15 @@ app.use("/api/quote", quoteRoutes);
 app.use("/api/estimate-gas", estimateGas);
 app.use("/api/tokens", tokens);
 
-
-// test root
+// ROOT
 app.get("/", (req, res) => {
   res.status(200).json({ msg: "API SIAP!!!" });
 });
 
-app.get("/api/test", (req, res) => {
-  res.json({ ok: true, path: "/api/test" });
-});
-
+// (optional) 404 terakhir – kalau mau, TARUH PALING BAWAH
+// app.use((req, res) => {
+//   res.status(404).json({ msg: "Not found", path: req.path });
+// });
 
 export default app;
+    
