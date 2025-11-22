@@ -1,4 +1,3 @@
-// app.js
 import express from "express";
 import cors from "cors";
 
@@ -25,5 +24,10 @@ app.use("/api/midtrans", midtransRoutes);
 app.use("/api/quote", quoteRoutes);
 app.use("/api/estimate-gas", estimateGas);
 app.use("/api/tokens", tokens);
+
+// test root
+app.get("/", (req, res) => {
+  res.status(200).json({ msg: "API SIAP!!!" });
+});
 
 export default app;
