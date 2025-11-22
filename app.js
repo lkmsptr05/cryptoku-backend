@@ -25,9 +25,15 @@ app.use("/api/quote", quoteRoutes);
 app.use("/api/estimate-gas", estimateGas);
 app.use("/api/tokens", tokens);
 
+
 // test root
 app.get("/", (req, res) => {
   res.status(200).json({ msg: "API SIAP!!!" });
 });
+
+app.get("/api/test", (req, res) => {
+  res.json({ ok: true, path: "/api/test" });
+});
+
 
 export default app;
