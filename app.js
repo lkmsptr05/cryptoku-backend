@@ -15,16 +15,16 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
-
-// ============ TEST ROUTE LANGSUNG DI APP ============
-app.get("/api/test", (req, res) => {
-  res.status(200).json({ ok: true, path: "/api/test", from: "app.js" });
+app.use((req, res, next) => {
+  console.log("[REQ]", req.method, req.path);
+  next();
 });
 
+
 // ============ ROUTES ASLI ============
+app.use("/", priceRoutes);
 app.use("/api/health", healthRoutes);
 app.use("/api/orders", orderRoutes);
-app.use("/api/prices", priceRoutes);
 app.use("/api/networks", networkRoutes);
 app.use("/api/midtrans", midtransRoutes);
 app.use("/api/quote", quoteRoutes);
@@ -42,4 +42,3 @@ app.get("/", (req, res) => {
 // });
 
 export default app;
-    
