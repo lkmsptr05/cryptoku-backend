@@ -12,9 +12,10 @@ export async function getAllPrices() {
       crypto_24h:crypto_24h (
         pricechangepercent,
         lastupdate
-      )
+      ),
+      status
     `);
-
+  console.log(data);
   if (error) return { error };
 
   const formatted = data.map((row) => ({
@@ -24,6 +25,7 @@ export async function getAllPrices() {
     timestamp: row.timestamp,
     priceChangePercent: row.crypto_24h?.pricechangepercent ?? 0,
     changeLastUpdate: row.crypto_24h?.lastupdate ?? null,
+    status: row.status,
   }));
 
   return { data: formatted };
@@ -45,7 +47,8 @@ export async function getPrice(symbol) {
       crypto_24h:crypto_24h (
         pricechangepercent,
         lastupdate
-      )
+      ),
+      status
     `
     )
     .eq("symbol", symbol.toLowerCase())
@@ -73,6 +76,7 @@ export async function getPrice(symbol) {
       timestamp: data.timestamp,
       priceChangePercent: data.crypto_24h?.pricechangepercent ?? 0,
       changeLastUpdate: data.crypto_24h?.lastupdate ?? null,
+      status: data.status,
     },
   };
 }
