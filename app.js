@@ -9,6 +9,7 @@ import midtransRoutes from "./routes/midtransRoutes.js";
 import quoteRoutes from "./routes/quote.js";
 import estimateGas from "./routes/estimateGas.js";
 import tokens from "./routes/tokens.js";
+import authTelegramRouter from "./routes/authTelegram.js";
 
 const app = express();
 
@@ -30,6 +31,7 @@ app.use("/api/midtrans", midtransRoutes);
 app.use("/api/quote", quoteRoutes);
 app.use("/api/estimate-gas", estimateGas);
 app.use("/api/tokens", tokens);
+app.use("/api/auth", authTelegramRouter);
 
 // Root test
 app.get("/", (req, res) => {
