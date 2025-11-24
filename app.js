@@ -10,6 +10,7 @@ import quoteRoutes from "./routes/quote.js";
 import estimateGas from "./routes/estimateGas.js";
 import tokens from "./routes/tokens.js";
 import authTelegramRouter from "./routes/authTelegram.js";
+import meRouter from "./routes/me.js";
 
 const app = express();
 
@@ -32,6 +33,7 @@ app.use("/api/quote", quoteRoutes);
 app.use("/api/estimate-gas", estimateGas);
 app.use("/api/tokens", tokens);
 app.use("/api/auth", authTelegramRouter);
+app.use("/api/me", meRouter);
 
 // Root test
 app.get("/", (req, res) => {
