@@ -8,8 +8,6 @@ const router = express.Router();
 router.post("/telegram", async (req, res) => {
   try {
     const { initData } = req.body;
-    console.log("Received initData:", initData);
-    console.log(process.env.TG_BOT_TOKEN);
     const result = verifyTelegramInitData(initData, process.env.TG_BOT_TOKEN);
 
     if (!result) {

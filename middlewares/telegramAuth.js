@@ -6,7 +6,6 @@ export default async function telegramAuth(req, res, next) {
     const initData = req.headers["x-telegram-init-data"];
     // console.log(initData);
 
-    console.log(process.env.TG_BOT_TOKEN);
     if (!initData) {
       return res.status(401).json({ error: "Unauthorized: initData missing" });
     }
