@@ -15,9 +15,7 @@ export async function getAllPrices() {
       ),
       status
     `);
-  console.log(data);
   if (error) return { error };
-
   const formatted = data.map((row) => ({
     symbol: row.symbol,
     price_usd: row.price_usd,
