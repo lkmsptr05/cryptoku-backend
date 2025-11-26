@@ -5,7 +5,6 @@ export function verifyTelegramInitData(initData, botToken) {
   try {
     // Validasi signature
     validate(initData, botToken);
-
     // Parse ke object
     const data = parse(initData);
 
