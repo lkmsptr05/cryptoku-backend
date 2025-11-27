@@ -2,27 +2,35 @@
 import express from "express";
 import supabase from "../utils/supabase.js";
 import { GasEstimator } from "../utils/gasEstimator.js";
+import { getNetworkRpcByKey } from "../utils/networkHelper.js";
 
 const router = express.Router();
 
-/* ==============================
-   HELPER: estimateGasFeeIdr
-================================ */
-async function estimateGasFeeIdr({
-  network_key,
-  token_symbol,
-  to_address,
-  amount_idr,
-}) {
-  const estimator = new GasEstimator({
-    networkKey: network_key,
-    tokenSymbol: token_symbol,
-    toAddress: to_address,
-    amountIdr: amount_idr,
+// ==============================
+// Helper: estimateGasFeeIdr (BNB native only)
+// ==============================
+async function estimateGasFeeIdr({ network_key, to_address }) {
+  // 1. Ambil RPC URL dari DB / helper (sama kayak di /estimate-gas)
+  const rpcUrl = await getNetworkRpcByKey(network_key);
+  if (!rpcUrl) {
+    throw new Error(`Unknown network_key: ${network_key}`);
+  }
+
+  // 2. Buat estimator pakai rpcUrl (STRING)
+  const estimator = new GasEstimator(rpcUrl);
+
+  // 3. Estimasi gas untuk native transfer
+  //    Di flow kamu: kalau tokenAddress & amount nggak diisi = native
+  const result = await estimator.estimate({
+    to: to_address,
+    // from, tokenAddress, amount → boleh kosong untuk native
   });
 
-  const result = await estimator.estimate();
+  if (!result || result.totalFeeIDR == null) {
+    throw new Error("GasEstimator tidak mengembalikan totalFeeIDR");
+  }
 
+  // 4. Pastikan output berupa integer IDR
   return Math.floor(Number(result.totalFeeIDR) || 0);
 }
 
@@ -112,10 +120,10 @@ router.post("/buy", async (req, res) => {
     try {
       gasFeeIdrNum = await estimateGasFeeIdr({
         network_key,
-        token_symbol,
         to_address,
-        amount_idr: amountIdrNum,
       });
+
+      console.log(gasFeeIdrNum);
 
       gasFeeIdrNum = Math.max(0, Math.floor(Number(gasFeeIdrNum) || 0));
     } catch (e) {
