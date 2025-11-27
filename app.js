@@ -18,10 +18,7 @@ import topupSnapRouter from "./routes/topupSnap.js";
 import midtransSnapCallback from "./routes/midtransSnapCallback.js";
 
 const app = express();
-const corsOptions = {
-  origin: "https://carla-scarflike-terrilyn.ngrok-free.dev",
-};
-app.use(cors(corsOptions));
+app.use(cors());
 app.use(express.json());
 
 // Debug log
