@@ -14,10 +14,14 @@ import topupCallbackRouter from "./routes/topupCallback.js";
 import notificationsRouter from "./routes/notifications.js";
 import newsRouter from "./routes/news.js";
 import ordersRouter from "./routes/orders.js";
+import topupSnapRouter from "./routes/topupSnap.js";
+import midtransSnapCallback from "./routes/midtransSnapCallback.js";
 
 const app = express();
-
-app.use(cors());
+const corsOptions = {
+  origin: "https://carla-scarflike-terrilyn.ngrok-free.dev",
+};
+app.use(cors(corsOptions));
 app.use(express.json());
 
 // Debug log
@@ -26,13 +30,13 @@ app.use((req, res, next) => {
   next();
 });
 
-// ROUTES
-
 // Topup: butuh Telegram auth
 app.use("/api/topup", telegramAuth, topupRouter);
+app.use("/api/topup/snap", topupSnapRouter);
 
 // Callback Midtrans: TIDAK pakai auth
 app.use("/api/topup", topupCallbackRouter);
+app.use("/api/midtrans/snap", midtransSnapCallback);
 
 app.use("/api/health", healthRoutes);
 app.use("/api/prices", priceRoutes);
