@@ -1,8 +1,31 @@
 // src/routes/orders.js
 import express from "express";
 import supabase from "../utils/supabase.js";
+import { GasEstimator } from "../utils/gasEstimator.js";
 
 const router = express.Router();
+
+/* ==============================
+   HELPER: estimateGasFeeIdr
+================================ */
+async function estimateGasFeeIdr({
+  network_key,
+  token_symbol,
+  to_address,
+  amount_idr,
+}) {
+  const estimator = new GasEstimator({
+    networkKey: network_key,
+    tokenSymbol: token_symbol,
+    toAddress: to_address,
+    amountIdr: amount_idr,
+  });
+
+  const result = await estimator.estimate();
+
+  return Math.floor(Number(result.totalFeeIDR) || 0);
+}
+
 // src/routes/orders.js (potongan POST /orders/buy)
 
 router.post("/buy", async (req, res) => {
@@ -16,16 +39,10 @@ router.post("/buy", async (req, res) => {
       });
     }
 
-    const {
-      token_symbol,
-      token_pair,
-      network_key,
-      to_address,
-      amount_idr,
-      service_fee_idr,
-      gas_fee_idr,
-    } = req.body || {};
-    console.log(token_symbol, token_pair, network_key, to_address, amount_idr);
+    const { token_symbol, token_pair, network_key, to_address, amount_idr } =
+      req.body || {};
+
+    // --- basic validation ---
     if (
       !token_symbol ||
       !token_pair ||
@@ -39,7 +56,9 @@ router.post("/buy", async (req, res) => {
       });
     }
 
-    if (Number(amount_idr) <= 0) {
+    const amountIdrNum = Number(amount_idr);
+
+    if (!Number.isFinite(amountIdrNum) || amountIdrNum <= 0) {
       return res.status(400).json({
         success: false,
         message: "Nominal IDR harus lebih besar dari 0.",
@@ -53,7 +72,7 @@ router.post("/buy", async (req, res) => {
       });
     }
 
-    // Ambil harga dari DB (latest snapshot)
+    // --- ambil harga token (snapshot) ---
     const { data: priceRow, error: priceError } = await supabase
       .from("crypto_prices")
       .select("price_usd, price_idr")
@@ -61,6 +80,7 @@ router.post("/buy", async (req, res) => {
       .single();
 
     if (priceError || !priceRow) {
+      console.error("[/buy] crypto_prices error:", priceError);
       return res.status(400).json({
         success: false,
         message: "Harga token tidak ditemukan.",
@@ -70,21 +90,58 @@ router.post("/buy", async (req, res) => {
     const priceUsd = Number(priceRow.price_usd);
     const priceIdr = Number(priceRow.price_idr);
 
-    // fallback kalau price_idr belum kamu pakai
-    if (!priceUsd || !priceIdr) {
+    if (
+      !Number.isFinite(priceUsd) ||
+      !Number.isFinite(priceIdr) ||
+      !priceUsd ||
+      !priceIdr
+    ) {
       return res.status(400).json({
         success: false,
         message: "Data harga token tidak valid.",
       });
     }
 
-    // amount_idr → token_amount
-    const amountIdrNum = Number(amount_idr);
-    const tokenAmountReal = amountIdrNum / priceIdr;
+    // --- hitung fee & gas di BACKEND ---
 
-    // token_amount → amount_usd (snapshot)
+    // 4% service fee dari total amount
+    const serviceFeeIdr = Math.floor(amountIdrNum * 0.04);
+
+    // gas fee dari fungsi backend (IDR)
+    let gasFeeIdrNum;
+    try {
+      gasFeeIdrNum = await estimateGasFeeIdr({
+        network_key,
+        token_symbol,
+        to_address,
+        amount_idr: amountIdrNum,
+      });
+
+      gasFeeIdrNum = Math.max(0, Math.floor(Number(gasFeeIdrNum) || 0));
+    } catch (e) {
+      console.error("[/buy] estimateGasFeeIdr error:", e);
+      return res.status(400).json({
+        success: false,
+        message: "Gagal menghitung biaya gas. Coba lagi sebentar.",
+      });
+    }
+
+    // IDR bersih yang dipakai untuk beli token (setelah potong fee & gas)
+    const netBuyIdr = amountIdrNum - serviceFeeIdr - gasFeeIdrNum;
+
+    if (netBuyIdr <= 0) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Nominal terlalu kecil setelah dipotong biaya layanan dan biaya jaringan. Tambah nominal pembelian.",
+      });
+    }
+
+    // --- konversi IDR → token & USD ---
+    const tokenAmountReal = netBuyIdr / priceIdr;
     const amountUsdReal = tokenAmountReal * priceUsd;
 
+    // --- panggil fungsi DB untuk lock saldo dan buat order ---
     const { data: orderId, error } = await supabase.rpc(
       "buy_token_with_saldo",
       {
@@ -93,11 +150,17 @@ router.post("/buy", async (req, res) => {
         p_token_pair: token_pair,
         p_network_key: network_key,
         p_to_address: to_address,
+
+        // TOTAL uang yang user keluarin (ini yang di-lock dari saldo)
         p_amount_idr: amountIdrNum,
-        p_amount_usd: amountUsdReal,
+
+        // token yang akan dikirim worker (sudah NET setelah fee + gas)
         p_token_amount: tokenAmountReal,
-        p_service_fee_idr: Number(service_fee_idr || 0),
-        p_gas_fee_idr: Number(gas_fee_idr || 0),
+        p_amount_usd: amountUsdReal,
+
+        // fee resmi versi backend (bukan dari frontend)
+        p_service_fee_idr: serviceFeeIdr,
+        p_gas_fee_idr: gasFeeIdrNum,
       }
     );
 
@@ -128,7 +191,7 @@ router.post("/buy", async (req, res) => {
     const orderRow =
       !orderFetchError && rows && rows.length > 0 ? rows[0] : null;
 
-    // Notifikasi: pembelian sedang diproses
+    // --- notifikasi ke user ---
     await supabase.from("user_notifications").insert({
       user_id: userId,
       type: "buy_pending",
@@ -137,21 +200,30 @@ router.post("/buy", async (req, res) => {
         "Pesanan pembelian " +
         token_symbol +
         " sebesar Rp" +
-        Number(amount_idr).toLocaleString("id-ID") +
+        amountIdrNum.toLocaleString("id-ID") +
         " sedang diproses. Saldo kamu telah dikunci sementara hingga transaksi selesai.",
       metadata: {
         token_symbol,
         token_pair,
         network_key,
         to_address,
+
         amount_idr: amountIdrNum,
+        net_buy_idr: netBuyIdr,
+        service_fee_idr: serviceFeeIdr,
+        gas_fee_idr: gasFeeIdrNum,
+
         token_amount: tokenAmountReal,
         amount_usd: amountUsdReal,
         price_usd: priceUsd,
         price_idr: priceIdr,
+
+        // view dari client (kalau mau dipakai debugging)
         client_view: {
           amount_usd: Number(req.body.amount_usd || 0),
           token_amount: Number(req.body.token_amount || 0),
+          service_fee_idr: Number(req.body.service_fee_idr || 0),
+          gas_fee_idr: Number(req.body.gas_fee_idr || 0),
         },
         order_id: orderId,
       },
