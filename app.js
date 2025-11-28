@@ -16,6 +16,7 @@ import newsRouter from "./routes/news.js";
 import ordersRouter from "./routes/orders.js";
 import topupSnapRouter from "./routes/topupSnap.js";
 import midtransSnapCallback from "./routes/midtransSnapCallback.js";
+import topupHistoryRouter from "./routes/topupHistory.js";
 
 const app = express();
 app.use(cors());
@@ -28,6 +29,7 @@ app.use((req, res, next) => {
 });
 
 // Topup: butuh Telegram auth
+app.use("/api/topup", telegramAuth, topupHistoryRouter);
 app.use("/api/topup", telegramAuth, topupRouter);
 app.use("/api/topup/snap", topupSnapRouter);
 

@@ -57,7 +57,7 @@ router.post("/", async (req, res) => {
         order_id: orderId,
         gross_amount: Number(amount),
       },
-      //   enabled_payments: ["gopay", "shopeepay"],
+      //   enabled_payments: ["other_qris"],
       customer_details: {
         first_name: user.first_name || user.username || "CryptoKu User",
       },
