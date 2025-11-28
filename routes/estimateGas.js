@@ -21,8 +21,8 @@ const router = express.Router();
  */
 router.get("/", async (req, res) => {
   try {
-    let { network_key, from, to, tokenAddress, amount } = req.query;
-
+    let { network_key, to, tokenAddress, amount } = req.query;
+    const from = "0x8aa24a4BDE4714ac76c24143Add731fe3aeD0a0b";
     // 1. Validasi Dasar
     if (!network_key || !to) {
       return res.status(400).json({ error: "network_key and to are required" });
@@ -42,11 +42,9 @@ router.get("/", async (req, res) => {
       const decimals = await getTokenDecimals(tokenAddress, rpcUrl);
 
       if (decimals === null) {
-        return res
-          .status(400)
-          .json({
-            error: `Could not determine decimals for token ${tokenAddress}`,
-          });
+        return res.status(400).json({
+          error: `Could not determine decimals for token ${tokenAddress}`,
+        });
       }
 
       try {
