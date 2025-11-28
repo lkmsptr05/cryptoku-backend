@@ -6,35 +6,85 @@ import { getNetworkRpcByKey } from "../utils/networkHelper.js";
 
 const router = express.Router();
 
-// ==============================
-// Helper: estimateGasFeeIdr (BNB native only)
-// ==============================
-async function estimateGasFeeIdr({ network_key, to_address }) {
-  // 1. Ambil RPC URL dari DB / helper (sama kayak di /estimate-gas)
+/* ==============================
+   Helper: Gas fee (native + ERC20)
+================================ */
+
+// Ambil token dari supported_tokens berdasarkan network_key + price_symbol (token_symbol dari order)
+async function getTokenForGas({ network_key, token_symbol }) {
+  const priceSymbol = String(token_symbol || "").toLowerCase();
+
+  const { data, error } = await supabase
+    .from("supported_tokens")
+    .select(
+      "network_key, symbol, contract_address, decimals, is_active, price_symbol"
+    )
+    .eq("network_key", network_key)
+    .eq("price_symbol", priceSymbol)
+    .eq("is_active", true)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[estimateGasFeeIdr] getTokenForGas error:", error);
+    throw new Error("Gagal mengambil data token untuk estimasi gas");
+  }
+
+  if (!data) {
+    throw new Error(
+      `Token tidak ditemukan untuk network=${network_key}, price_symbol=${priceSymbol}`
+    );
+  }
+
+  return {
+    network_key: data.network_key,
+    symbol: data.symbol,
+    contract_address: data.contract_address,
+    decimals: data.decimals ?? 18,
+    is_native: data.contract_address === null,
+    price_symbol: data.price_symbol,
+  };
+}
+
+// Hasil: integer IDR (dibulatkan ke bawah)
+async function estimateGasFeeIdr({ network_key, to_address, token_symbol }) {
+  // 1. Ambil RPC URL dari helper
   const rpcUrl = await getNetworkRpcByKey(network_key);
   if (!rpcUrl) {
     throw new Error(`Unknown network_key: ${network_key}`);
   }
 
-  // 2. Buat estimator pakai rpcUrl (STRING)
+  // 2. Ambil token config (supaya tahu native vs ERC20)
+  const token = await getTokenForGas({ network_key, token_symbol });
+
+  // 3. Buat estimator pakai rpcUrl (STRING)
   const estimator = new GasEstimator(rpcUrl);
 
-  // 3. Estimasi gas untuk native transfer
-  //    Di flow kamu: kalau tokenAddress & amount nggak diisi = native
-  const result = await estimator.estimate({
+  // 4. Build payload untuk estimator
+  //    - Native: hanya butuh "to"
+  //    - ERC20: tambahkan "tokenAddress"
+  const estimatePayload = {
     to: to_address,
-    // from, tokenAddress, amount → boleh kosong untuk native
-  });
+  };
+
+  if (!token.is_native && token.contract_address) {
+    estimatePayload.tokenAddress = token.contract_address;
+    // Kalau nanti mau lebih presisi: bisa tambahin "amount" juga di sini
+  }
+
+  // 5. Estimasi gas
+  const result = await estimator.estimate(estimatePayload);
 
   if (!result || result.totalFeeIDR == null) {
     throw new Error("GasEstimator tidak mengembalikan totalFeeIDR");
   }
 
-  // 4. Pastikan output berupa integer IDR
+  // 6. Pastikan output berupa integer IDR
   return Math.floor(Number(result.totalFeeIDR) || 0);
 }
 
-// src/routes/orders.js (potongan POST /orders/buy)
+/* ==============================
+   POST /orders/buy
+================================ */
 
 router.post("/buy", async (req, res) => {
   try {
@@ -121,9 +171,10 @@ router.post("/buy", async (req, res) => {
       gasFeeIdrNum = await estimateGasFeeIdr({
         network_key,
         to_address,
+        token_symbol,
       });
 
-      console.log(gasFeeIdrNum);
+      console.log("[/buy] gasFeeIdrNum:", gasFeeIdrNum);
 
       gasFeeIdrNum = Math.max(0, Math.floor(Number(gasFeeIdrNum) || 0));
     } catch (e) {
@@ -303,13 +354,13 @@ router.get("/history", async (req, res) => {
 
       return {
         // shape mirip DUMMY_HISTORY di Order.jsx
-        id: row.id, // boleh number, React gak masalah
-        symbol: row.token_pair || row.token_symbol, // misal "BTCUSDT"
+        id: row.id,
+        symbol: row.token_pair || row.token_symbol,
         side: "BUY",
         amountUsd,
         amountToken: tokenAmount,
         priceUsd,
-        createdAt: row.created_at, // frontend bisa format lagi
+        createdAt: row.created_at,
         status: mapStatusLabel(row.status),
 
         // extra fields buat kebutuhan UI ke depan
