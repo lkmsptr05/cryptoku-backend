@@ -17,6 +17,7 @@ import ordersRouter from "./routes/orders.js";
 import topupSnapRouter from "./routes/topupSnap.js";
 import midtransSnapCallback from "./routes/midtransSnapCallback.js";
 import topupHistoryRouter from "./routes/topupHistory.js";
+import gasRouter from "./routes/routerGas.js";
 
 const app = express();
 app.use(cors());
@@ -40,7 +41,7 @@ app.use("/api/midtrans/snap", midtransSnapCallback);
 app.use("/api/health", healthRoutes);
 app.use("/api/prices", priceRoutes);
 app.use("/api/networks", networkRoutes);
-app.use("/api/estimate-gas", estimateGas);
+app.use("/api/gas/", gasRouter);
 app.use("/api/tokens", tokens);
 app.use("/api/auth", authTelegramRouter);
 app.use("/api/news", newsRouter);

@@ -62,6 +62,13 @@ router.get("/", async (req, res) => {
     // 3. Estimasi Gas
     const estimator = new GasEstimator(rpcUrl);
     // Kirim amountInUnits (BigInt) ke estimator
+    console.log("Estimating gas with params:", {
+      from,
+      to,
+      tokenAddress,
+      amount: amountInUnits,
+    });
+    return;
     const result = await estimator.estimate({
       from,
       to,

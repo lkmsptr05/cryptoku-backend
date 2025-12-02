@@ -110,3 +110,60 @@ export async function getSparkline(symbol) {
     },
   };
 }
+
+/**
+ * Mengambil kurs pertukaran dari tabel exchange_rates
+ * @param {string} currencyPair - contoh: 'usd_idr' (default)
+ */
+export async function getExchangeRate(currencyPair = "usd_idr") {
+  try {
+    const { data, error } = await supabase
+      .from("exchange_rates")
+      .select(`*`)
+      .eq("currency_pair", currencyPair.toLowerCase())
+      .limit(1)
+      .single();
+
+    if (error && error.code) {
+      console.error(
+        `Supabase Query Error for exchange_rate ${currencyPair}:`,
+        error.message
+      );
+      return {
+        error: { message: `Gagal mengambil exchange_rate: ${error.message}` },
+      };
+    }
+
+    if (!data) {
+      return {
+        error: {
+          message: `Exchange rate '${currencyPair}' tidak ditemukan di database.`,
+          status: 404,
+        },
+      };
+    }
+
+    return {
+      data: {
+        currency_pair: data.currency_pair,
+        rate: Number(data.rate),
+        timestamp: data.timestamp,
+      },
+    };
+  } catch (e) {
+    console.error("Critical error in getExchangeRate:", e?.message || e);
+    return { error: { message: `Internal error: ${e?.message || String(e)}` } };
+  }
+}
+
+/**
+ * Helper kecil untuk langsung ambil USD->IDR (return Number atau 0)
+ */
+export async function getUsdIdrRate() {
+  const r = await getExchangeRate("usd_idr");
+  if (r.error) {
+    // fallback ke 0 agar tidak melempar exception — konsisten dengan style file
+    return { data: { rate: 0 }, error: r.error };
+  }
+  return { data: { rate: r.data.rate, timestamp: r.data.timestamp } };
+}

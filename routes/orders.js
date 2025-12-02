@@ -1,13 +1,18 @@
 // src/routes/orders.js
 import express from "express";
 import supabase from "../utils/supabase.js";
-import { GasEstimator } from "../utils/gasEstimator.js";
-import { getNetworkRpcByKey } from "../utils/networkHelper.js";
+// import { GasEstimator } from "../utils/gasEstimator.js"; // removed - use NetworkEstimatorMap instead
+import { NetworkEstimatorMap } from "../services/Estimators.js";
+import {
+  getNetworkRpcByKey,
+  getDefaultSenderAddress,
+} from "../utils/networkHelper.js";
+import { getPrice } from "../services/priceService.js";
 
 const router = express.Router();
 
 /* ==============================
-   Helper: Gas fee (native + ERC20)
+   Helper: Gas fee (native + ERC20/jetton)
 ================================ */
 
 // Ambil token dari supported_tokens berdasarkan network_key + price_symbol (token_symbol dari order)
@@ -45,6 +50,25 @@ async function getTokenForGas({ network_key, token_symbol }) {
   };
 }
 
+// Create estimator instance by network key & rpcUrl
+function createEstimatorForNetwork(network_key, rpcUrl, options = {}) {
+  const EstimatorClass = NetworkEstimatorMap[network_key];
+  if (!EstimatorClass) {
+    throw new Error(`Unsupported network_key for estimator: ${network_key}`);
+  }
+
+  // Pass rpcUrl or options object (some estimators accept options)
+  // We allow passing priceOverride via options if caller wants to override prices.
+  // Basic call: new EstimatorClass(rpcUrl)
+  try {
+    // If EstimatorClass expects options object, providing rpcUrl is still supported by many classes.
+    return new EstimatorClass(rpcUrl, options);
+  } catch (e) {
+    // Fallback: try passing options object with rpcUrl
+    return new EstimatorClass({ rpcUrl, ...options });
+  }
+}
+
 // Hasil: integer IDR (dibulatkan ke bawah)
 async function estimateGasFeeIdr({ network_key, to_address, token_symbol }) {
   // 1. Ambil RPC URL dari helper
@@ -53,33 +77,101 @@ async function estimateGasFeeIdr({ network_key, to_address, token_symbol }) {
     throw new Error(`Unknown network_key: ${network_key}`);
   }
 
-  // 2. Ambil token config (supaya tahu native vs ERC20)
+  // 2. Ambil token config (supaya tahu native vs ERC20 / jetton)
   const token = await getTokenForGas({ network_key, token_symbol });
 
-  // 3. Buat estimator pakai rpcUrl (STRING)
-  const estimator = new GasEstimator(rpcUrl);
+  // 3. Resolve default sender (some estimators require 'from' for estimateGas)
+  let from;
+  try {
+    from = getDefaultSenderAddress(network_key);
+  } catch (e) {
+    from = null;
+  }
 
-  // 4. Build payload untuk estimator
-  //    - Native: hanya butuh "to"
-  //    - ERC20: tambahkan "tokenAddress"
-  const estimatePayload = {
+  // If no from, estimator may still work (some use provider default), but prefer non-null
+  if (!from) {
+    // optional: try to get from DB or use zero address for EVM as fallback
+    // but keep null to let estimator handle it
+    from = null;
+  }
+
+  // 4. Create network-specific estimator
+  let estimator;
+  try {
+    estimator = createEstimatorForNetwork(network_key, rpcUrl);
+  } catch (e) {
+    console.error("[estimateGasFeeIdr] createEstimatorForNetwork error:", e);
+    throw new Error("Estimator for network not available");
+  }
+
+  // 5. Prepare payload for estimator
+  const payload = {
+    from,
     to: to_address,
   };
 
   if (!token.is_native && token.contract_address) {
-    estimatePayload.tokenAddress = token.contract_address;
-    // Kalau nanti mau lebih presisi: bisa tambahin "amount" juga di sini
+    payload.tokenAddress = token.contract_address;
+    // Optionally pass amount (smallest unit) if you want more precise gas for token transfers
+    // payload.amount = "1"; // smallest unit as fallback
   }
 
-  // 5. Estimasi gas
-  const result = await estimator.estimate(estimatePayload);
-
-  if (!result || result.totalFeeIDR == null) {
-    throw new Error("GasEstimator tidak mengembalikan totalFeeIDR");
+  // 6. Call estimator. Expect result object that contains totalFeeIDR or totalFeeUSD/totalFeeNative
+  let result;
+  try {
+    result = await estimator.estimate(payload);
+  } catch (e) {
+    console.error(
+      "[estimateGasFeeIdr] estimator.estimate failed:",
+      e?.message || e
+    );
+    throw new Error("Gagal mengestimasi biaya jaringan");
   }
 
-  // 6. Pastikan output berupa integer IDR
-  return Math.floor(Number(result.totalFeeIDR) || 0);
+  // 7. Normalize result to integer IDR
+  // Support different shapes:
+  // - result.totalFeeIDR (preferred)
+  // - result.totalFeeUSD + priceInfo.usdIdr
+  // - result.totalFeeNative + priceInfo.nativeUsd + priceInfo.usdIdr
+  let feeIdr = 0;
+
+  try {
+    if (
+      result &&
+      typeof result.totalFeeIDR !== "undefined" &&
+      result.totalFeeIDR !== null
+    ) {
+      feeIdr = Number(result.totalFeeIDR) || 0;
+    } else if (
+      result &&
+      typeof result.totalFeeUSD !== "undefined" &&
+      result.totalFeeUSD !== null
+    ) {
+      const usd = Number(result.totalFeeUSD) || 0;
+      const usdIdr = Number(result.priceInfo?.usdIdr) || 0;
+      feeIdr = usd * usdIdr;
+    } else if (result && typeof result.totalFeeNative === "string") {
+      // totalFeeNative format like "0.005735735 TON" -> extract number
+      const m = result.totalFeeNative.match(/([0-9.]+)/);
+      const nativeAmt = m ? Number(m[1]) : 0;
+      const nativeUsd = Number(result.priceInfo?.nativeUsd) || 0;
+      const usdIdr = Number(result.priceInfo?.usdIdr) || 0;
+      feeIdr = nativeAmt * nativeUsd * usdIdr;
+    } else {
+      // As last resort, try recommended in meta
+      const recTon = Number(result?.meta?.recommended?.ton) || 0;
+      const nativeUsd = Number(result.priceInfo?.nativeUsd) || 0;
+      const usdIdr = Number(result.priceInfo?.usdIdr) || 0;
+      feeIdr = recTon * nativeUsd * usdIdr;
+    }
+  } catch (e) {
+    console.warn("[estimateGasFeeIdr] normalization failed:", e?.message || e);
+    feeIdr = 0;
+  }
+
+  // ensure integer >= 0
+  feeIdr = Math.max(0, Math.floor(Number(feeIdr) || 0));
+  return feeIdr;
 }
 
 /* ==============================
@@ -123,11 +215,29 @@ router.post("/buy", async (req, res) => {
       });
     }
 
-    if (!/^0x[0-9a-fA-F]{40}$/.test(to_address)) {
-      return res.status(400).json({
-        success: false,
-        message: "Wallet address tidak valid.",
-      });
+    // NOTE: address validation differs by network. For EVM we keep old 0x check,
+    // for TON or other networks supported_tokens should indicate address format.
+    if (
+      network_key === "ethereum" ||
+      network_key === "bsc" ||
+      network_key === "polygon" ||
+      network_key === "optimism" ||
+      network_key === "arbitrum"
+    ) {
+      if (!/^0x[0-9a-fA-F]{40}$/.test(to_address)) {
+        return res.status(400).json({
+          success: false,
+          message: "Wallet address tidak valid.",
+        });
+      }
+    } else {
+      // for non-EVM networks, we skip strict 0x check (TON addresses different)
+      if (!to_address || typeof to_address !== "string") {
+        return res.status(400).json({
+          success: false,
+          message: "Wallet address tidak valid.",
+        });
+      }
     }
 
     // --- ambil harga token (snapshot) ---
