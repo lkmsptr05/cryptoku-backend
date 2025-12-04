@@ -40,6 +40,12 @@ export class BaseChainEstimator extends BaseEstimator {
   static NATIVE_SYMBOL = "ETH";
 }
 
+export class GravityEstimator extends BaseEstimator {
+  static CHAIN_ID = 1625;
+  static PRICE_SYMBOL = "gusdt";
+  static NATIVE_SYMBOL = "G";
+}
+
 // ============ MAPPING ============ //
 
 export const NetworkEstimatorMap = {
@@ -49,5 +55,6 @@ export const NetworkEstimatorMap = {
   optimism: OptimismEstimator,
   arbitrum: ArbitrumEstimator,
   base: BaseChainEstimator,
-  ton: TonEstimatorGas, // non-EVM, berbeda model gas
+  gravity: GravityEstimator,
+  ton: TonEstimatorGas,
 };
